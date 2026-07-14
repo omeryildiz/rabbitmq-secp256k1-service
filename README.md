@@ -30,8 +30,7 @@ Verify (Doğrulama) Yük Testi (10.000 mesaj):
 ./scripts/run-benchmark-verify.sh
 
 ## Örnek Benchmark Çıktıları
-
-Aşağıda yer alan test sonuçları, lokal ortamda 10.000 mesajlık yük testi (benchmark-client) çalıştırılarak elde edilmiştir.
+Aşağıda yer alan test sonuçları, izole edilmiş lokal ortamda 10.000 mesajlık yük testi (benchmark-client) çalıştırılarak elde edilmiştir.
 
 ### Sign (İmzalama) Benchmark Sonucu
 Operation: sign
@@ -41,8 +40,8 @@ Error: 0
 Average latency: 5 ms
 P95 latency: 5 ms
 P99 latency: 6 ms
-Throughput: 879,43 req/sec
-Total duration: 11,37 sec
+Throughput: 80,59 req/sec
+Total duration: 124,08 sec
 
 ### Verify (Doğrulama) Benchmark Sonucu
 Operation: verify
@@ -52,9 +51,9 @@ Error: 0
 Average latency: 5 ms
 P95 latency: 5 ms
 P99 latency: 6 ms
-Throughput: 1063,60 req/sec
-Total duration: 9,40 sec
+Throughput: 203,42 req/sec
+Total duration: 49,16 sec
 
 ## Kriptografik Standartlar
-- İmza Formatı: DER (Distinguished Encoding Rules)
-- Public Key Formatı: X.509 SubjectPublicKeyInfo formatında dışa aktarılmaktadır.
+* İmza Formatı: DER (Distinguished Encoding Rules)
+* Public Key Formatı: X.509 SubjectPublicKeyInfo formatında dışa aktarılmaktadır.

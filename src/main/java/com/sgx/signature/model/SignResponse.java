@@ -1,6 +1,10 @@
 package com.sgx.signature.model;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class SignResponse {
+    private static final Logger log = LoggerFactory.getLogger(java.lang.invoke.MethodHandles.lookup().lookupClass());
     private String requestId;
     private String status; // OK veya ERROR
     private String algorithm;

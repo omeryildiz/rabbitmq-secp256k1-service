@@ -1,5 +1,8 @@
 package com.sgx.signature.crypto;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemReader;
 
@@ -11,6 +14,7 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
 
 public class Secp256k1Signer {
+    private static final Logger log = LoggerFactory.getLogger(java.lang.invoke.MethodHandles.lookup().lookupClass());
     
     public static String signPayload(String payloadBase64, String privateKeyPath) throws Exception {
         // 1. PEM dosyasından Private Key'i okuma

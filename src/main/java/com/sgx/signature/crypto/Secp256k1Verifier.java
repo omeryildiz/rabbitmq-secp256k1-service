@@ -1,5 +1,8 @@
 package com.sgx.signature.crypto;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.Signature;
@@ -7,6 +10,7 @@ import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 
 public class Secp256k1Verifier {
+    private static final Logger log = LoggerFactory.getLogger(java.lang.invoke.MethodHandles.lookup().lookupClass());
 
     public static boolean verifySignature(String payloadBase64, String signatureBase64, String publicKeyBase64) throws Exception {
         // 1. Base64 formatındaki Public Key'i X.509 formatında Java nesnesine çevirme

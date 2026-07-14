@@ -1,10 +1,14 @@
 package com.sgx.signature.benchmark;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 public class LatencyRecorder {
+    private static final Logger log = LoggerFactory.getLogger(java.lang.invoke.MethodHandles.lookup().lookupClass());
     private final List<Long> latencies = new ArrayList<>();
 
     public synchronized void record(long latencyMs) {

@@ -1,5 +1,8 @@
 package com.sgx.signature.rabbit;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
@@ -14,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 
 public class SignRequestConsumer {
+    private static final Logger log = LoggerFactory.getLogger(java.lang.invoke.MethodHandles.lookup().lookupClass());
     private static final Logger logger = LoggerFactory.getLogger(SignRequestConsumer.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final String REQUEST_QUEUE = "sign.request";
@@ -23,6 +27,7 @@ public class SignRequestConsumer {
         try {
             Connection connection = RabbitMqConnectionFactory.getConnection();
             Channel channel = connection.createChannel();
+            log.info("Kuyruk (queue) declare edildi.");
             channel.queueDeclare(REQUEST_QUEUE, false, false, false, null);
             logger.info("Kuyruk declare edildi: {}", REQUEST_QUEUE);
 
@@ -59,6 +64,7 @@ public class SignRequestConsumer {
                     response.setPublicKey(pubKeyContent);
 
                 } catch (Exception e) {
+            log.error("Islem sirasinda hata olustu: ", e);
                     logger.error("İmzalama hatası: {}", e.getMessage());
                     response.setStatus("ERROR");
                     response.setErrorCode("SIGN_ERROR");
@@ -71,10 +77,12 @@ public class SignRequestConsumer {
                 }
             };
 
+            log.info("Consumer basladi ve kuyruk dinleniyor.");
             channel.basicConsume(REQUEST_QUEUE, true, deliverCallback, consumerTag -> {});
             logger.info("Signer consumer başladı. {} dinleniyor...", REQUEST_QUEUE);
             
         } catch (Exception e) {
+            log.error("Islem sirasinda hata olustu: ", e);
             logger.error("SignRequestConsumer baslatilamadi: {}", e.getMessage());
         }
     }

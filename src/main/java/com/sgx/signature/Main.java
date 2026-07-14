@@ -1,5 +1,8 @@
 package com.sgx.signature;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.sgx.signature.crypto.Secp256k1KeyManager;
 import com.sgx.signature.rabbit.SignRequestConsumer;
 import com.sgx.signature.rabbit.VerifyRequestConsumer;
@@ -13,6 +16,7 @@ import java.util.Arrays;
 import java.util.List;
 
 public class Main {
+    private static final Logger log = LoggerFactory.getLogger(java.lang.invoke.MethodHandles.lookup().lookupClass());
     public static void main(String[] args) {
         // UYGULAMANIN EN BAŞINDA BOUNCY CASTLE SİSTEME TANITILIYOR
         Security.addProvider(new BouncyCastleProvider());
@@ -48,6 +52,7 @@ public class Main {
                 System.out.println("Lutfen gecerli bir mod girin (keygen, signer, verifier, benchmark-client)");
             }
         } catch (Exception e) {
+            log.error("Islem sirasinda hata olustu: ", e);
             System.err.println("Islem sirasinda hata olustu: " + e.getMessage());
             e.printStackTrace();
         }

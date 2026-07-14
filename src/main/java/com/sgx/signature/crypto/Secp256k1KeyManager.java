@@ -1,5 +1,8 @@
 package com.sgx.signature.crypto;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemWriter;
@@ -15,6 +18,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class Secp256k1KeyManager {
+    private static final Logger log = LoggerFactory.getLogger(java.lang.invoke.MethodHandles.lookup().lookupClass());
     private static final Logger logger = LoggerFactory.getLogger(Secp256k1KeyManager.class);
 
     static {

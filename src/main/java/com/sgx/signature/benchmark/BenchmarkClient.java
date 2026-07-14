@@ -1,5 +1,8 @@
 package com.sgx.signature.benchmark;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
@@ -12,6 +15,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class BenchmarkClient {
+    private static final Logger log = LoggerFactory.getLogger(java.lang.invoke.MethodHandles.lookup().lookupClass());
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     public static void start(String operation, int messageCount, int payloadSize) {
@@ -28,6 +32,7 @@ public class BenchmarkClient {
             Channel channel = connection.createChannel();
             
             // Hedef yanıt kuyruğunu ayarlıyoruz
+            log.info("Kuyruk (queue) declare edildi.");
             channel.queueDeclare(targetResponseQueue, false, false, false, null);
             
             LatencyRecorder recorder = new LatencyRecorder();
@@ -36,6 +41,7 @@ public class BenchmarkClient {
             CountDownLatch latch = new CountDownLatch(messageCount);
 
             // Hedef yanıt kuyruğunu dinlemeye başlıyoruz
+            log.info("Consumer basladi ve kuyruk dinleniyor.");
             channel.basicConsume(targetResponseQueue, true, (consumerTag, delivery) -> {
                 successCount.incrementAndGet();
                 latch.countDown();
@@ -91,6 +97,7 @@ public class BenchmarkClient {
 
             System.exit(0);
         } catch (Exception e) {
+            log.error("Islem sirasinda hata olustu: ", e);
             System.err.println("Benchmark sirasinda hata: " + e.getMessage());
         }
     }
