@@ -1,0 +1,15 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: sgx-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP portu
+      - "15672:15672" # Management UI portu
+    environment:
+      RABBITMQ_DEFAULT_USER: sgxuser
+      RABBITMQ_DEFAULT_PASS: sgxpass
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
