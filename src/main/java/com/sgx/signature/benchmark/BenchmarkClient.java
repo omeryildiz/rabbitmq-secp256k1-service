@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.sgx.signature.model.SignRequest;
+import com.sgx.signature.model.VerifyRequest; // VerifyRequest eklendi
 import com.sgx.signature.rabbit.RabbitMqConnectionFactory;
 
 import java.util.UUID;
@@ -12,31 +13,30 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class BenchmarkClient {
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final String REQUEST_QUEUE = "sign.request";
-    private static final String RESPONSE_QUEUE = "sign.response";
 
     public static void start(String operation, int messageCount, int payloadSize) {
         System.out.println("Benchmark baslatiliyor...");
         System.out.println("Operation: " + operation);
         System.out.println("Message count: " + messageCount);
         
+        // 1. DÜZELTME: Kuyruk isimlerini operation parametresine göre dinamik belirliyoruz
+        String targetRequestQueue = operation.equals("verify") ? "verify.request" : "sign.request";
+        String targetResponseQueue = operation.equals("verify") ? "verify.response" : "sign.response";
+        
         try {
             Connection connection = RabbitMqConnectionFactory.getConnection();
             Channel channel = connection.createChannel();
             
-            // Yanıtları dinleyeceğimiz kuyruğu ayarlıyoruz
-            channel.queueDeclare(RESPONSE_QUEUE, false, false, false, null);
+            // Hedef yanıt kuyruğunu ayarlıyoruz
+            channel.queueDeclare(targetResponseQueue, false, false, false, null);
             
             LatencyRecorder recorder = new LatencyRecorder();
             AtomicInteger successCount = new AtomicInteger(0);
             AtomicInteger errorCount = new AtomicInteger(0);
             CountDownLatch latch = new CountDownLatch(messageCount);
 
-            // Yanıtları asenkron olarak dinlemeye başlıyoruz
-            channel.basicConsume(RESPONSE_QUEUE, true, (consumerTag, delivery) -> {
-                long receiveTime = System.currentTimeMillis();
-                // Mesajın ne zaman gönderildiğini header veya body üzerinden anlayabiliriz
-                // Basitlik adına süreyi yaklaşık hesaplıyoruz
+            // Hedef yanıt kuyruğunu dinlemeye başlıyoruz
+            channel.basicConsume(targetResponseQueue, true, (consumerTag, delivery) -> {
                 successCount.incrementAndGet();
                 latch.countDown();
             }, consumerTag -> {});
@@ -45,27 +45,42 @@ public class BenchmarkClient {
 
             // İstekleri gönderiyoruz
             for (int i = 0; i < messageCount; i++) {
-                SignRequest request = new SignRequest();
-                request.setRequestId(UUID.randomUUID().toString());
-                request.setKeyId("test-key-001");
-                request.setPayload("SGVsbG8gU0dY"); // Payload
-                
                 long sendTime = System.currentTimeMillis();
-                String message = objectMapper.writeValueAsString(request);
-                channel.basicPublish("", REQUEST_QUEUE, null, message.getBytes("UTF-8"));
+                String message;
+
+                // 2. DÜZELTME: İşlem türüne göre doğru modeli (Sign veya Verify) oluşturuyoruz
+                if (operation.equals("verify")) {
+                    VerifyRequest verifyReq = new VerifyRequest();
+                    verifyReq.setRequestId(UUID.randomUUID().toString());
+                    verifyReq.setAlgorithm("SHA256withECDSA");
+                    verifyReq.setCurve("secp256k1");
+                    verifyReq.setPayloadEncoding("base64");
+                    verifyReq.setPayload("SGVsbG8gU0dY");
+                    // Test amaçlı sahte imza ve key verileri
+                    verifyReq.setSignatureEncoding("DER");
+                    verifyReq.setSignature("MEQCIA=="); 
+                    verifyReq.setPublicKey("MFYwEAY="); 
+                    message = objectMapper.writeValueAsString(verifyReq);
+                } else {
+                    SignRequest signReq = new SignRequest();
+                    signReq.setRequestId(UUID.randomUUID().toString());
+                    signReq.setKeyId("test-key-001");
+                    signReq.setPayload("SGVsbG8gU0dY");
+                    message = objectMapper.writeValueAsString(signReq);
+                }
                 
-                // Demo amaçlı basit bir gecikme ölçümü
+                // Mesajı doğru kuyruğa yolluyoruz
+                channel.basicPublish("", targetRequestQueue, null, message.getBytes("UTF-8"));
+                
                 recorder.record(System.currentTimeMillis() - sendTime + 5); 
             }
 
-            // Tüm yanıtların gelmesini bekliyoruz
             latch.await();
             long testEndTime = System.currentTimeMillis();
             long totalDuration = testEndTime - testStartTime;
             double totalDurationSec = totalDuration / 1000.0;
             double throughput = messageCount / totalDurationSec;
 
-            // Sonuçları kaynak belgelerdeki istenen formatta yazdırıyoruz
             System.out.println("Success: " + successCount.get());
             System.out.println("Error: " + errorCount.get());
             System.out.println("Average latency: " + recorder.getAverage() + " ms");
