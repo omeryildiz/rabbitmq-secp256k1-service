@@ -1,15 +1,19 @@
 package com.sgx.signature.crypto;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assertions.*;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Base64;
 
 public class Secp256k1CryptoTest {
+    @TempDir
+    Path keyDirectory;
 
     @Test
     public void testKeyGeneration() throws Exception {
-        Map<String, String> keys = Secp256k1KeyManager.generateKeyPair("test-key-001");
+        Map<String, String> keys = Secp256k1KeyManager.generateKeyPair("test-key-001", keyDirectory);
         assertNotNull(keys, "Key map null olmamalıdır");
         assertNotNull(keys.get("publicKey"), "Public key üretilebilmelidir");
         assertNotNull(keys.get("publicKeyFile"), "Public key dosyası yolu dönmelidir");
@@ -18,9 +22,9 @@ public class Secp256k1CryptoTest {
     @Test
     public void testSignAndVerifyHappyPath() throws Exception {
         String payloadBase64 = "SGVsbG8gU0dY"; 
-        Map<String, String> keys = Secp256k1KeyManager.generateKeyPair("test-key-002");
+        Map<String, String> keys = Secp256k1KeyManager.generateKeyPair("test-key-002", keyDirectory);
         
-        String privateKeyPath = "keys/test-key-002-private.pem"; 
+        String privateKeyPath = keys.get("privateKeyFile");
         String pubKeyBase64 = keys.get("publicKey");
         
         String signatureBase64 = Secp256k1Signer.signPayload(payloadBase64, privateKeyPath);
@@ -34,9 +38,9 @@ public class Secp256k1CryptoTest {
     public void testVerifyWithWrongPayload() throws Exception {
         String originalPayloadBase64 = "SGVsbG8gU0dY";
         String wrongPayloadBase64 = "V1JPTkdfUEFZTE9BRA=="; 
-        Map<String, String> keys = Secp256k1KeyManager.generateKeyPair("test-key-003");
+        Map<String, String> keys = Secp256k1KeyManager.generateKeyPair("test-key-003", keyDirectory);
         
-        String privateKeyPath = "keys/test-key-003-private.pem"; 
+        String privateKeyPath = keys.get("privateKeyFile");
         String pubKeyBase64 = keys.get("publicKey");
         
         String signatureBase64 = Secp256k1Signer.signPayload(originalPayloadBase64, privateKeyPath);
@@ -48,9 +52,9 @@ public class Secp256k1CryptoTest {
     @Test
     public void testVerifyWithWrongSignature() throws Exception {
         String payloadBase64 = "SGVsbG8gU0dY";
-        Map<String, String> keys = Secp256k1KeyManager.generateKeyPair("test-key-004");
+        Map<String, String> keys = Secp256k1KeyManager.generateKeyPair("test-key-004", keyDirectory);
         
-        String privateKeyPath = "keys/test-key-004-private.pem"; 
+        String privateKeyPath = keys.get("privateKeyFile");
         String pubKeyBase64 = keys.get("publicKey");
         
         String signatureBase64 = Secp256k1Signer.signPayload(payloadBase64, privateKeyPath);

@@ -4,6 +4,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.sgx.signature.crypto.Secp256k1KeyManager;
+import com.sgx.signature.crypto.FileSigningKeyProvider;
+import com.sgx.signature.crypto.InMemorySigningKeyProvider;
+import com.sgx.signature.crypto.SigningKeyProvider;
 import com.sgx.signature.rabbit.SignRequestConsumer;
 import com.sgx.signature.rabbit.VerifyRequestConsumer;
 import com.sgx.signature.benchmark.BenchmarkClient;
@@ -14,6 +17,7 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.Arrays;
 import java.util.List;
+import java.nio.file.Path;
 
 public class Main {
     private static final Logger log = LoggerFactory.getLogger(java.lang.invoke.MethodHandles.lookup().lookupClass());
@@ -37,8 +41,18 @@ public class Main {
                 System.out.println("  \"publicKeyFile\": \"" + result.get("publicKeyFile") + "\"");
                 System.out.println("}");
             } else if ("signer".equalsIgnoreCase(mode)) {
-                System.out.println("Signer modu baslatiliyor...");
-                SignRequestConsumer.start();
+                String keyMode = parsedArgs.getOrDefault("key-mode", "file");
+                String keyId = parsedArgs.getOrDefault("key-id", "enclave-key");
+                SigningKeyProvider keyProvider;
+                if ("memory".equalsIgnoreCase(keyMode)) {
+                    keyProvider = new InMemorySigningKeyProvider(keyId);
+                } else if ("file".equalsIgnoreCase(keyMode)) {
+                    keyProvider = new FileSigningKeyProvider(Path.of("keys"));
+                } else {
+                    throw new IllegalArgumentException("key-mode 'file' veya 'memory' olmalıdır");
+                }
+                System.out.println("Signer modu baslatiliyor; anahtar kaynagi=" + keyProvider.description());
+                SignRequestConsumer.start(keyProvider);
             } else if ("verifier".equalsIgnoreCase(mode)) {
                 System.out.println("Verifier modu baslatiliyor...");
                 VerifyRequestConsumer.start();
@@ -55,6 +69,7 @@ public class Main {
             log.error("Islem sirasinda hata olustu: ", e);
             System.err.println("Islem sirasinda hata olustu: " + e.getMessage());
             e.printStackTrace();
+            System.exit(1);
         }
     }
 

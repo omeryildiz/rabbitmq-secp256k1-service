@@ -7,14 +7,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.DeliverCallback;
-import com.sgx.signature.crypto.Secp256k1Signer;
+import com.sgx.signature.crypto.SigningKeyProvider;
 import com.sgx.signature.model.SignRequest;
 import com.sgx.signature.model.SignResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.nio.file.Files;
-import java.nio.file.Paths;
 
 public class SignRequestConsumer {
     private static final Logger log = LoggerFactory.getLogger(java.lang.invoke.MethodHandles.lookup().lookupClass());
@@ -23,7 +20,7 @@ public class SignRequestConsumer {
     private static final String REQUEST_QUEUE = "sign.request";
     private static final String RESPONSE_QUEUE = "sign.response";
 
-    public static void start() {
+    public static void start(SigningKeyProvider keyProvider) {
         try {
             Connection connection = RabbitMqConnectionFactory.getConnection();
             Channel channel = connection.createChannel();
@@ -40,15 +37,7 @@ public class SignRequestConsumer {
                     SignRequest request = objectMapper.readValue(message, SignRequest.class);
                     response.setRequestId(request.getRequestId());
                     
-                    String privateKeyPath = "keys/" + request.getKeyId() + "-private.pem";
-                    String publicKeyPath = "keys/" + request.getKeyId() + "-public.pem";
-                    
-                    if (!Files.exists(Paths.get(privateKeyPath))) {
-                        throw new RuntimeException("Key not found: " + request.getKeyId());
-                    }
-
-                    // Kripto sınıfımızı çağırıp imzalıyoruz
-                    String signature = Secp256k1Signer.signPayload(request.getPayload(), privateKeyPath);
+                    String signature = keyProvider.sign(request.getKeyId(), request.getPayload());
                     
                     response.setStatus("OK");
                     response.setAlgorithm("SHA256withECDSA");
@@ -56,12 +45,7 @@ public class SignRequestConsumer {
                     response.setSignatureEncoding("DER");
                     response.setSignature(signature);
                     
-                    // Public key'i PEM formatından temizleyip base64 olarak ekliyoruz
-                    String pubKeyContent = new String(Files.readAllBytes(Paths.get(publicKeyPath)))
-                            .replace("-----BEGIN PUBLIC KEY-----", "")
-                            .replace("-----END PUBLIC KEY-----", "")
-                            .replaceAll("\\s", "");
-                    response.setPublicKey(pubKeyContent);
+                    response.setPublicKey(keyProvider.publicKeyBase64(request.getKeyId()));
 
                 } catch (Exception e) {
             log.error("Islem sirasinda hata olustu: ", e);
@@ -79,7 +63,8 @@ public class SignRequestConsumer {
 
             log.info("Consumer basladi ve kuyruk dinleniyor.");
             channel.basicConsume(REQUEST_QUEUE, true, deliverCallback, consumerTag -> {});
-            logger.info("Signer consumer başladı. {} dinleniyor...", REQUEST_QUEUE);
+            logger.info("Signer consumer başladı. {} dinleniyor; anahtar kaynağı={}", REQUEST_QUEUE,
+                    keyProvider.description());
             
         } catch (Exception e) {
             log.error("Islem sirasinda hata olustu: ", e);

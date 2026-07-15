@@ -6,15 +6,19 @@ import com.sgx.signature.crypto.Secp256k1Verifier;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.security.Security;
 import java.util.Map;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 public class CryptoTest {
+    @TempDir
+    Path keyDirectory;
 
     @BeforeAll
     public static void setup() {
@@ -25,7 +29,7 @@ public class CryptoTest {
     public void testCryptoOperations() {
         try {
             // 1. secp256k1 key generation testi
-            Map<String, String> keys = Secp256k1KeyManager.generateKeyPair("test-unit-key");
+            Map<String, String> keys = Secp256k1KeyManager.generateKeyPair("test-unit-key", keyDirectory);
             assertNotNull(keys.get("privateKeyFile"));
             assertNotNull(keys.get("publicKey"));
 

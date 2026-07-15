@@ -29,16 +29,19 @@ public class Secp256k1Signer {
             privateKey = keyFactory.generatePrivate(keySpec);
         }
 
-        // 2. Base64 formattaki payload'u byte dizisine çevirme
+        return signPayload(payloadBase64, privateKey);
+    }
+
+    public static String signPayload(String payloadBase64, PrivateKey privateKey) throws Exception {
+        // Base64 formattaki payload'u byte dizisine çevirme
         byte[] payloadBytes = Base64.getDecoder().decode(payloadBase64);
 
-        // 3. SHA256withECDSA kullanarak imzalama (Bouncy Castle varsayılan olarak DER formatında imza üretir)
+        // SHA256withECDSA kullanarak imzalama (Bouncy Castle DER formatında imza üretir)
         Signature signature = Signature.getInstance("SHA256withECDSA", "BC");
         signature.initSign(privateKey);
         signature.update(payloadBytes);
         byte[] signatureBytes = signature.sign();
 
-        // 4. İmzayı JSON'da taşınabilmesi için Base64'e çevirip dönme
         return Base64.getEncoder().encodeToString(signatureBytes);
     }
 }
