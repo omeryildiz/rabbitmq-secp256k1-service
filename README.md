@@ -133,6 +133,14 @@ mvn clean test
 mvn clean package
 ```
 
+`mvn test` yalnız hızlı/unit testleri çalıştırır. RabbitMQ entegrasyon testleri
+broker ayaktayken ayrı profille çalıştırılır:
+
+```bash
+docker compose up -d
+mvn -Pintegration-tests verify
+```
+
 Oluşan fat JAR:
 
 ```text

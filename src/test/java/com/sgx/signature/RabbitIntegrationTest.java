@@ -1,118 +1,123 @@
 package com.sgx.signature;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
+import com.sgx.signature.crypto.InMemorySigningKeyProvider;
+import com.sgx.signature.crypto.Secp256k1Verifier;
+import com.sgx.signature.model.SignRequest;
+import com.sgx.signature.model.VerifyRequest;
 import com.sgx.signature.rabbit.RabbitMqConnectionFactory;
+import com.sgx.signature.rabbit.SignRequestConsumer;
+import com.sgx.signature.rabbit.VerifyRequestConsumer;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class RabbitIntegrationTest {
+class RabbitIntegrationTest {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final String KEY_ID = "integration-key";
+    private static final String PAYLOAD = Base64.getEncoder()
+            .encodeToString("RabbitMQ integration".getBytes(StandardCharsets.UTF_8));
+    private static InMemorySigningKeyProvider keyProvider;
 
-    @Test
-    public void testRabbitMqConnection() {
-        // 1. RabbitMQ bağlantı testi
-        try {
-            Connection connection = RabbitMqConnectionFactory.getConnection();
-            assertNotNull(connection, "RabbitMQ baglantisi kurulamadi!");
-            assertTrue(connection.isOpen(), "RabbitMQ baglantisi acik degil!");
-        } catch (Exception e) {
-            fail("RabbitMQ entegrasyon hatasi: " + e.getMessage());
+    @BeforeAll
+    static void startServices() throws Exception {
+        purgeQueues("sign.request", "sign.response", "verify.request", "verify.response");
+        keyProvider = new InMemorySigningKeyProvider(KEY_ID);
+        SignRequestConsumer.start(keyProvider);
+        VerifyRequestConsumer.start();
+    }
+
+    @AfterAll
+    static void closeConnection() throws Exception {
+        Connection connection = RabbitMqConnectionFactory.getConnection();
+        if (connection.isOpen()) {
+            connection.close();
         }
     }
 
     @Test
-    public void testSignIntegration() {
-        // 2. Sign request/response integration testi
-        try {
-            Connection connection = RabbitMqConnectionFactory.getConnection();
-            Channel channel = connection.createChannel();
-            
-            String reqQueue = "sign.request";
-            String resQueue = "sign.response";
-            channel.queueDeclare(reqQueue, false, false, false, null);
-            channel.queueDeclare(resQueue, false, false, false, null);
-
-            // Testin stabil olması için yanıt kuyruğundaki eski mesajları temizliyoruz
-            channel.queuePurge(resQueue);
-
-            String requestId = "test-sign-req-" + UUID.randomUUID().toString();
-            // Örnek bir JSON sign isteği
-            String jsonRequest = "{ \"requestId\": \"" + requestId + "\", \"keyId\": \"test-key-001\", \"payload\": \"SGVsbG8gU0dY\" }";
-
-            CompletableFuture<String> responseFuture = new CompletableFuture<>();
-
-            // Yanıtı dinlemek için geçici bir consumer başlatıyoruz
-            String consumerTag = channel.basicConsume(resQueue, true, (tag, delivery) -> {
-                String message = new String(delivery.getBody(), "UTF-8");
-                if (message.contains(requestId)) {
-                    responseFuture.complete(message);
-                }
-            }, tag -> {});
-
-            // İsteği gönderiyoruz
-            channel.basicPublish("", reqQueue, null, jsonRequest.getBytes("UTF-8"));
-
-            try {
-                // Arka plandaki signer'ın cevap vermesi için 5 saniye bekliyoruz
-                String response = responseFuture.get(5, TimeUnit.SECONDS);
-                assertNotNull(response, "RabbitMQ'dan yanit alinamadi!");
-                assertTrue(response.contains(requestId), "Yanit baska bir istege ait!");
-            } catch (Exception e) {
-                System.out.println("Uyari: Signer servisi arka planda acik olmadigi veya yetismedigi icin timeout alindi. Mesaj basariyla iletildi.");
-            } finally {
-                channel.basicCancel(consumerTag);
-                channel.close();
-            }
-        } catch (Exception e) {
-            fail("Sign integration testi sirasinda hata: " + e.getMessage());
-        }
+    void connectsToRabbitMq() throws Exception {
+        Connection connection = RabbitMqConnectionFactory.getConnection();
+        assertNotNull(connection);
+        assertTrue(connection.isOpen());
     }
 
     @Test
-    public void testVerifyIntegration() {
-        // 3. Verify request/response integration testi
-        try {
-            Connection connection = RabbitMqConnectionFactory.getConnection();
-            Channel channel = connection.createChannel();
-            
-            String reqQueue = "verify.request";
-            String resQueue = "verify.response";
-            channel.queueDeclare(reqQueue, false, false, false, null);
-            channel.queueDeclare(resQueue, false, false, false, null);
-            
-            channel.queuePurge(resQueue);
+    void signsThroughRabbitMqAndReturnsVerifiableSignature() throws Exception {
+        SignRequest request = new SignRequest();
+        request.setRequestId(UUID.randomUUID().toString());
+        request.setKeyId(KEY_ID);
+        request.setPayload(PAYLOAD);
 
-            String requestId = "test-verify-req-" + UUID.randomUUID().toString();
-            // Örnek bir JSON verify isteği
-            String jsonRequest = "{ \"requestId\": \"" + requestId + "\", \"payload\": \"SGVsbG8gU0dY\", \"signature\": \"dummy\" }";
+        JsonNode response = requestResponse("sign.request", "sign.response", request, request.getRequestId());
 
-            CompletableFuture<String> responseFuture = new CompletableFuture<>();
+        assertEquals("OK", response.path("status").asText(), response.toString());
+        assertTrue(Secp256k1Verifier.verifySignature(
+                PAYLOAD,
+                response.path("signature").asText(),
+                response.path("publicKey").asText()));
+    }
 
-            String consumerTag = channel.basicConsume(resQueue, true, (tag, delivery) -> {
-                String message = new String(delivery.getBody(), "UTF-8");
-                if (message.contains(requestId)) {
-                    responseFuture.complete(message);
+    @Test
+    void verifiesValidSignatureThroughRabbitMq() throws Exception {
+        String signature = keyProvider.sign(KEY_ID, PAYLOAD);
+        VerifyRequest request = new VerifyRequest();
+        request.setRequestId(UUID.randomUUID().toString());
+        request.setPayload(PAYLOAD);
+        request.setSignature(signature);
+        request.setPublicKey(keyProvider.publicKeyBase64(KEY_ID));
+
+        JsonNode response = requestResponse("verify.request", "verify.response", request, request.getRequestId());
+
+        assertEquals("OK", response.path("status").asText(), response.toString());
+        assertTrue(response.path("valid").asBoolean(), response.toString());
+    }
+
+    private static void purgeQueues(String... queues) throws Exception {
+        Connection connection = RabbitMqConnectionFactory.getConnection();
+        try (Channel channel = connection.createChannel()) {
+            for (String queue : queues) {
+                channel.queueDeclare(queue, false, false, false, null);
+                channel.queuePurge(queue);
+            }
+        }
+    }
+
+    private static JsonNode requestResponse(
+            String requestQueue, String responseQueue, Object request, String requestId) throws Exception {
+        Connection connection = RabbitMqConnectionFactory.getConnection();
+        try (Channel channel = connection.createChannel()) {
+            channel.queueDeclare(requestQueue, false, false, false, null);
+            channel.queueDeclare(responseQueue, false, false, false, null);
+            channel.queuePurge(responseQueue);
+
+            CompletableFuture<JsonNode> responseFuture = new CompletableFuture<>();
+            String consumerTag = channel.basicConsume(responseQueue, true, (tag, delivery) -> {
+                JsonNode response = OBJECT_MAPPER.readTree(delivery.getBody());
+                if (requestId.equals(response.path("requestId").asText())) {
+                    responseFuture.complete(response);
                 }
-            }, tag -> {});
-
-            channel.basicPublish("", reqQueue, null, jsonRequest.getBytes("UTF-8"));
+            }, tag -> { });
 
             try {
-                String response = responseFuture.get(5, TimeUnit.SECONDS);
-                assertNotNull(response);
-            } catch (Exception e) {
-                 System.out.println("Uyari: Verifier servisi arka planda acik olmadigi icin timeout alindi. Mesaj basariyla iletildi.");
+                channel.basicPublish("", requestQueue, null, OBJECT_MAPPER.writeValueAsBytes(request));
+                return responseFuture.get(10, TimeUnit.SECONDS);
             } finally {
                 channel.basicCancel(consumerTag);
-                channel.close();
             }
-        } catch (Exception e) {
-            fail("Verify integration testi sirasinda hata: " + e.getMessage());
         }
     }
 }
