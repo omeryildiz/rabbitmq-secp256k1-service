@@ -22,6 +22,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -65,6 +66,8 @@ class RabbitIntegrationTest {
         JsonNode response = requestResponse("sign.request", "sign.response", request, request.getRequestId());
 
         assertEquals("OK", response.path("status").asText(), response.toString());
+        assertFalse(response.has("privateKey"), response.toString());
+        assertFalse(response.has("privateKeyFile"), response.toString());
         assertTrue(Secp256k1Verifier.verifySignature(
                 PAYLOAD,
                 response.path("signature").asText(),

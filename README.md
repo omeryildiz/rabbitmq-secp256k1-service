@@ -222,6 +222,16 @@ KEY_ID=enclave-key ./scripts/run-benchmark-sign.sh
 
 ## Gramine SGX derleme ve çalıştırma
 
+Bu akışta birbirinden bağımsız iki private key vardır:
+
+| Anahtar | Nerede üretilir/kullanılır? | Enclave çalışırken durumu |
+|---|---|---|
+| Enclave build/kimlik RSA anahtarı | Gramine `sign` aşamasında, repo dışında | Enclave'e verilmez, mount edilmez, runtime için gerekmez |
+| Uygulama secp256k1 anahtarı | Production enclave başladıktan sonra enclave belleğinde | Private kısmı dışarı verilmez; yalnız public key ve imza yanıtta çıkar |
+
+`SGX_SIGNER_KEY` yalnız build-time Gramine kimlik anahtarıdır. Uygulamanın
+imzaladığı mesajlara erişemez ve `run` komutuna aktarılmaz.
+
 Önce JAR'ı ve RabbitMQ'yu hazırlayın:
 
 ```bash
@@ -232,10 +242,10 @@ docker compose up -d
 Manifest üretme ve enclave imzalama:
 
 ```bash
-install -d -m 0700 /tmp/gramine-signing-key
-gramine-sgx-gen-private-key /tmp/gramine-signing-key/signer-key.pem
+install -d -m 0700 /tmp/gramine-build-identity
+gramine-sgx-gen-private-key /tmp/gramine-build-identity/signer-key.pem
 make -C gramine sign \
-  SGX_SIGNER_KEY=/tmp/gramine-signing-key/signer-key.pem
+  SGX_SIGNER_KEY=/tmp/gramine-build-identity/signer-key.pem
 ```
 
 Bu RSA-3072 anahtar secp256k1 işlem anahtarı değildir; yalnızca enclave
@@ -265,17 +275,18 @@ olmalıdır:
 gramine-sgx-sigstruct-view --verbose --output-format=toml gramine/signer.sig
 ```
 
-Signer'ı çalıştırın:
+Signer'ı build anahtarını vermeden çalıştırın:
 
 ```bash
-SGX_SIGNER_KEY=/tmp/gramine-signing-key/signer-key.pem \
-  ./scripts/run-signer-sgx.sh
+./scripts/run-signer-sgx.sh
 ```
 
 Başlangıçta uygulama production DCAP quote kontrolünden geçtikten sonra
 `enclave-key` kimlikli secp256k1 anahtarını üretir. `keys/` altında private key
-oluşmaz. Debug manifest, `gramine-direct`, quote alınamaması veya desteklenmeyen
-quote formatında servis anahtar üretmeden hata verir.
+oluşmaz. RabbitMQ cevabında yalnız public key ve üretilen imza bulunur; private
+key/private-key yolu için model veya API alanı yoktur. Debug manifest,
+`gramine-direct`, quote alınamaması veya desteklenmeyen quote formatında servis
+anahtar üretmeden hata verir.
 
 ## SGX destekli CPU üzerinde uçtan uca test
 
@@ -302,10 +313,10 @@ mvn -Pintegration-tests verify
 
 # 2. Fat JAR ve repo dışında test amaçlı enclave imzalama anahtarı
 mvn clean package
-install -d -m 0700 /tmp/gramine-signing-key
-gramine-sgx-gen-private-key /tmp/gramine-signing-key/signer-key.pem
+install -d -m 0700 /tmp/gramine-build-identity
+gramine-sgx-gen-private-key /tmp/gramine-build-identity/signer-key.pem
 make -C gramine sign \
-  SGX_SIGNER_KEY=/tmp/gramine-signing-key/signer-key.pem
+  SGX_SIGNER_KEY=/tmp/gramine-build-identity/signer-key.pem
 
 # 3. İmzalanan enclave'in production olduğunu doğrula
 gramine-sgx-sigstruct-view --verbose --output-format=toml gramine/signer.sig
@@ -315,13 +326,14 @@ Son komutun çıktısında `debug_enclave = false` olmalıdır. Birinci terminal
 production enclave signer'ı başlatın:
 
 ```bash
-SGX_SIGNER_KEY=/tmp/gramine-signing-key/signer-key.pem \
-  ./scripts/run-signer-sgx.sh
+./scripts/run-signer-sgx.sh
 ```
 
-Logda `memory-only:enclave-key` görülmeli; SGX/DCAP veya debug denetimi başarısız
-olursa süreç anahtar üretmeden çıkmalıdır. İkinci terminalde kısa işlev ve
-performans testi çalıştırın:
+Bu aşamada process environment veya argümanlarda `SGX_SIGNER_KEY` bulunmaz;
+build kimlik anahtarı enclave'e açılan dosyalar arasında değildir. Logda
+`memory-only:enclave-key` görülmeli; SGX/DCAP veya debug denetimi başarısız
+olursa süreç secp256k1 anahtarı üretmeden çıkmalıdır. İkinci terminalde kısa
+işlev ve performans testi çalıştırın:
 
 ```bash
 KEY_ID=enclave-key MESSAGE_COUNT=1000 ./scripts/run-benchmark-sign.sh
@@ -363,8 +375,7 @@ KEY_ID=enclave-key ./scripts/run-benchmark-sign.sh | tee benchmark-native.txt
 SGX modu:
 
 ```bash
-SGX_SIGNER_KEY=/tmp/gramine-signing-key/signer-key.pem \
-  ./scripts/run-signer-sgx.sh
+./scripts/run-signer-sgx.sh
 # başka terminal:
 KEY_ID=enclave-key ./scripts/run-benchmark-sign.sh | tee benchmark-sgx.txt
 ```
@@ -411,7 +422,7 @@ bir geçici imza/public key çifti üretir:
 ```bash
 make -C gramine clean
 docker compose down
-rm -rf /tmp/rabbitmq-secp256k1-service-keys /tmp/gramine-signing-key
+rm -rf /tmp/rabbitmq-secp256k1-service-keys /tmp/gramine-build-identity
 ```
 
 `make clean` yalnız üretilmiş Gramine manifest/imza çıktılarını siler. Repo

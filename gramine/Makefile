@@ -6,7 +6,7 @@ JAVA_CONFIG_DIR ?= /etc/java-17-openjdk
 ARCH_LIBDIR ?= /lib/x86_64-linux-gnu
 SGX_SIGNER_KEY ?=
 
-.PHONY: all manifest sign run clean check check-signer-key
+.PHONY: all manifest sign run clean check check-signer-key check-signed
 
 all: sign
 
@@ -32,7 +32,12 @@ check-signer-key:
 sign: manifest check-signer-key
 	gramine-sgx-sign --manifest $(APP).manifest --output $(APP).manifest.sgx --key $(SGX_SIGNER_KEY)
 
-run: sign
+check-signed:
+	@test -f "$(APP).manifest.sgx" || (echo "İmzalı manifest bulunamadı: önce 'make -C gramine sign SGX_SIGNER_KEY=/repo/disindaki/anahtar.pem' çalıştırın"; exit 1)
+	@test -f "$(APP).sig" || (echo "SIGSTRUCT bulunamadı: önce enclave'i imzalayın"; exit 1)
+
+run: check-signed
+	@command -v gramine-sgx >/dev/null
 	gramine-sgx ./$(APP)
 
 clean:
