@@ -7,6 +7,7 @@ import com.sgx.signature.crypto.Secp256k1KeyManager;
 import com.sgx.signature.crypto.FileSigningKeyProvider;
 import com.sgx.signature.crypto.InMemorySigningKeyProvider;
 import com.sgx.signature.crypto.SigningKeyProvider;
+import com.sgx.signature.security.SgxEnvironment;
 import com.sgx.signature.rabbit.SignRequestConsumer;
 import com.sgx.signature.rabbit.VerifyRequestConsumer;
 import com.sgx.signature.benchmark.BenchmarkClient;
@@ -43,6 +44,9 @@ public class Main {
             } else if ("signer".equalsIgnoreCase(mode)) {
                 String keyMode = parsedArgs.getOrDefault("key-mode", "file");
                 String keyId = parsedArgs.getOrDefault("key-id", "enclave-key");
+                if (Boolean.parseBoolean(parsedArgs.getOrDefault("require-sgx", "false"))) {
+                    SgxEnvironment.requireDcapAttestation();
+                }
                 SigningKeyProvider keyProvider;
                 if ("memory".equalsIgnoreCase(keyMode)) {
                     keyProvider = new InMemorySigningKeyProvider(keyId);
@@ -60,8 +64,9 @@ public class Main {
                 String operation = parsedArgs.getOrDefault("operation", "sign");
                 int messageCount = Integer.parseInt(parsedArgs.getOrDefault("message-count", "10000"));
                 int payloadSize = Integer.parseInt(parsedArgs.getOrDefault("payload-size", "32"));
+                String keyId = parsedArgs.getOrDefault("key-id", "test-key-001");
                 
-                BenchmarkClient.start(operation, messageCount, payloadSize);
+                BenchmarkClient.start(operation, messageCount, payloadSize, keyId);
             } else {
                 System.out.println("Lutfen gecerli bir mod girin (keygen, signer, verifier, benchmark-client)");
             }

@@ -9,25 +9,25 @@ import java.util.List;
 
 public class LatencyRecorder {
     private static final Logger log = LoggerFactory.getLogger(java.lang.invoke.MethodHandles.lookup().lookupClass());
-    private final List<Long> latencies = new ArrayList<>();
+    private final List<Long> latenciesMicros = new ArrayList<>();
 
-    public synchronized void record(long latencyMs) {
-        latencies.add(latencyMs);
+    public synchronized void recordMicros(long latencyMicros) {
+        latenciesMicros.add(latencyMicros);
     }
 
-    public synchronized long getAverage() {
-        if (latencies.isEmpty()) return 0;
+    public synchronized double getAverageMillis() {
+        if (latenciesMicros.isEmpty()) return 0;
         long sum = 0;
-        for (long l : latencies) sum += l;
-        return sum / latencies.size();
+        for (long latency : latenciesMicros) sum += latency;
+        return (sum / (double) latenciesMicros.size()) / 1_000.0;
     }
 
-    public synchronized long getPercentile(double percentile) {
-        if (latencies.isEmpty()) return 0;
-        List<Long> sorted = new ArrayList<>(latencies);
+    public synchronized double getPercentileMillis(double percentile) {
+        if (latenciesMicros.isEmpty()) return 0;
+        List<Long> sorted = new ArrayList<>(latenciesMicros);
         Collections.sort(sorted);
         int index = (int) Math.ceil(percentile / 100.0 * sorted.size()) - 1;
         if (index < 0) index = 0;
-        return sorted.get(index);
+        return sorted.get(index) / 1_000.0;
     }
 }

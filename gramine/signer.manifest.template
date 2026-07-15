@@ -1,0 +1,46 @@
+# Render with `make -C gramine manifest`. Arguments are fixed in this measured manifest.
+libos.entrypoint = "{{ java_home }}/bin/java"
+loader.argv = [
+  "java",
+  "-Xms128m",
+  "-Xmx512m",
+  "-Djava.io.tmpdir=/tmp",
+  "-Djava.security.egd=file:/dev/urandom",
+  "-jar",
+  "{{ jar_path }}",
+  "--mode=signer",
+  "--key-mode=memory",
+  "--key-id=enclave-key",
+  "--require-sgx=true"
+]
+loader.log_level = "error"
+loader.env.LD_LIBRARY_PATH = "{{ java_home }}/lib:{{ java_home }}/lib/server:{{ arch_libdir }}"
+loader.env.HOME = "/tmp"
+loader.env.LANG = "C.UTF-8"
+
+fs.root.type = "chroot"
+fs.root.uri = "file:/"
+fs.mounts = [
+  { type = "tmpfs", path = "/tmp" }
+]
+fs.start_dir = "{{ project_dir }}"
+
+# Gramine sanitizes host DNS information before exposing it to the enclave.
+sys.enable_extra_runtime_domain_names_conf = true
+sys.enable_sigterm_injection = true
+sys.disallow_subprocesses = true
+
+sgx.debug = false
+sgx.remote_attestation = "dcap"
+sgx.enclave_size = "1G"
+sgx.max_threads = 32
+sgx.isvprodid = 1
+sgx.isvsvn = 1
+
+# All executable/configuration inputs are measured by gramine-sgx-sign.
+sgx.trusted_files = [
+  "file:{{ java_home }}/",
+  "file:{{ java_config_dir }}/",
+  "file:{{ arch_libdir }}/",
+  "file:{{ jar_path }}"
+]

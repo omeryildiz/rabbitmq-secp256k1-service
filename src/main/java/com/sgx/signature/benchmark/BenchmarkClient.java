@@ -1,97 +1,140 @@
 package com.sgx.signature.benchmark;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
+import com.sgx.signature.crypto.InMemorySigningKeyProvider;
 import com.sgx.signature.model.SignRequest;
-import com.sgx.signature.model.VerifyRequest; // VerifyRequest eklendi
+import com.sgx.signature.model.VerifyRequest;
 import com.sgx.signature.rabbit.RabbitMqConnectionFactory;
 
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class BenchmarkClient {
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+public final class BenchmarkClient {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final long TIMEOUT_MINUTES = 10;
 
-    public static void start(String operation, int messageCount, int payloadSize) {
-        System.out.println("Benchmark baslatiliyor...");
-        System.out.println("Operation: " + operation);
-        System.out.println("Message count: " + messageCount);
-        
-        // 1. DÜZELTME: Kuyruk isimlerini operation parametresine göre dinamik belirliyoruz
-        String targetRequestQueue = operation.equals("verify") ? "verify.request" : "sign.request";
-        String targetResponseQueue = operation.equals("verify") ? "verify.response" : "sign.response";
-        
-        try {
-            Connection connection = RabbitMqConnectionFactory.getConnection();
-            Channel channel = connection.createChannel();
-            
-            // Hedef yanıt kuyruğunu ayarlıyoruz
-            channel.queueDeclare(targetResponseQueue, false, false, false, null);
-            
+    private BenchmarkClient() {
+    }
+
+    public static void start(String operation, int messageCount, int payloadSize, String keyId) {
+        validateArguments(operation, messageCount, payloadSize);
+        String requestQueue = operation.equals("verify") ? "verify.request" : "sign.request";
+        String responseQueue = operation.equals("verify") ? "verify.response" : "sign.response";
+
+        try (Connection connection = RabbitMqConnectionFactory.getConnection();
+             Channel channel = connection.createChannel()) {
+            channel.queueDeclare(requestQueue, false, false, false, null);
+            channel.queueDeclare(responseQueue, false, false, false, null);
+            channel.queuePurge(responseQueue);
+
             LatencyRecorder recorder = new LatencyRecorder();
-            AtomicInteger successCount = new AtomicInteger(0);
-            AtomicInteger errorCount = new AtomicInteger(0);
+            AtomicInteger successCount = new AtomicInteger();
+            AtomicInteger errorCount = new AtomicInteger();
             CountDownLatch latch = new CountDownLatch(messageCount);
+            ConcurrentHashMap<String, Long> sentAtNanos = new ConcurrentHashMap<>();
 
-            // Hedef yanıt kuyruğunu dinlemeye başlıyoruz
-            channel.basicConsume(targetResponseQueue, true, (consumerTag, delivery) -> {
-                successCount.incrementAndGet();
-                latch.countDown();
-            }, consumerTag -> {});
-
-            long testStartTime = System.currentTimeMillis();
-
-            // İstekleri gönderiyoruz
-            for (int i = 0; i < messageCount; i++) {
-                long sendTime = System.currentTimeMillis();
-                String message;
-
-                // 2. DÜZELTME: İşlem türüne göre doğru modeli (Sign veya Verify) oluşturuyoruz
-                if (operation.equals("verify")) {
-                    VerifyRequest verifyReq = new VerifyRequest();
-                    verifyReq.setRequestId(UUID.randomUUID().toString());
-                    verifyReq.setAlgorithm("SHA256withECDSA");
-                    verifyReq.setCurve("secp256k1");
-                    verifyReq.setPayloadEncoding("base64");
-                    verifyReq.setPayload("SGVsbG8gU0dY");
-                    // Test amaçlı sahte imza ve key verileri
-                    verifyReq.setSignatureEncoding("DER");
-                    verifyReq.setSignature("MEQCIA=="); 
-                    verifyReq.setPublicKey("MFYwEAY="); 
-                    message = objectMapper.writeValueAsString(verifyReq);
-                } else {
-                    SignRequest signReq = new SignRequest();
-                    signReq.setRequestId(UUID.randomUUID().toString());
-                    signReq.setKeyId("test-key-001");
-                    signReq.setPayload("SGVsbG8gU0dY");
-                    message = objectMapper.writeValueAsString(signReq);
+            channel.basicConsume(responseQueue, true, (consumerTag, delivery) -> {
+                JsonNode response = OBJECT_MAPPER.readTree(delivery.getBody());
+                String requestId = response.path("requestId").asText();
+                Long startNanos = sentAtNanos.remove(requestId);
+                if (startNanos == null) {
+                    return;
                 }
-                
-                // Mesajı doğru kuyruğa yolluyoruz
-                channel.basicPublish("", targetRequestQueue, null, message.getBytes("UTF-8"));
-                
-                recorder.record(System.currentTimeMillis() - sendTime + 5); 
+                recorder.recordMicros((System.nanoTime() - startNanos) / 1_000);
+                if ("OK".equals(response.path("status").asText())) {
+                    successCount.incrementAndGet();
+                } else {
+                    errorCount.incrementAndGet();
+                }
+                latch.countDown();
+            }, consumerTag -> { });
+
+            byte[] payloadBytes = new byte[payloadSize];
+            new SecureRandom().nextBytes(payloadBytes);
+            String payloadBase64 = Base64.getEncoder().encodeToString(payloadBytes);
+
+            String verifySignature = null;
+            String verifyPublicKey = null;
+            if (operation.equals("verify")) {
+                InMemorySigningKeyProvider fixture = new InMemorySigningKeyProvider("benchmark-key");
+                verifySignature = fixture.sign("benchmark-key", payloadBase64);
+                verifyPublicKey = fixture.publicKeyBase64("benchmark-key");
             }
 
-            latch.await();
-            long testEndTime = System.currentTimeMillis();
-            long totalDuration = testEndTime - testStartTime;
-            double totalDurationSec = totalDuration / 1000.0;
-            double throughput = messageCount / totalDurationSec;
+            System.out.printf("Benchmark: operation=%s messages=%d payload=%d bytes keyId=%s%n",
+                    operation, messageCount, payloadSize, keyId);
+            long testStartNanos = System.nanoTime();
+            for (int i = 0; i < messageCount; i++) {
+                String requestId = UUID.randomUUID().toString();
+                byte[] message = operation.equals("verify")
+                        ? verifyRequest(requestId, payloadBase64, verifySignature, verifyPublicKey)
+                        : signRequest(requestId, keyId, payloadBase64);
+                sentAtNanos.put(requestId, System.nanoTime());
+                channel.basicPublish("", requestQueue, null, message);
+            }
+
+            if (!latch.await(TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+                throw new IllegalStateException("Benchmark zaman aşımına uğradı; eksik yanıt=" + latch.getCount());
+            }
+            double totalSeconds = (System.nanoTime() - testStartNanos) / 1_000_000_000.0;
+            double throughput = messageCount / totalSeconds;
 
             System.out.println("Success: " + successCount.get());
             System.out.println("Error: " + errorCount.get());
-            System.out.println("Average latency: " + recorder.getAverage() + " ms");
-            System.out.println("P95 latency: " + recorder.getPercentile(95) + " ms");
-            System.out.println("P99 latency: " + recorder.getPercentile(99) + " ms");
+            System.out.printf("Average latency: %.3f ms%n", recorder.getAverageMillis());
+            System.out.printf("P95 latency: %.3f ms%n", recorder.getPercentileMillis(95));
+            System.out.printf("P99 latency: %.3f ms%n", recorder.getPercentileMillis(99));
             System.out.printf("Throughput: %.2f req/sec%n", throughput);
-            System.out.printf("Total duration: %.2f sec%n", totalDurationSec);
+            System.out.printf("Total duration: %.3f sec%n", totalSeconds);
 
-            System.exit(0);
+            if (errorCount.get() > 0) {
+                throw new IllegalStateException(errorCount.get() + " istek hata ile sonuçlandı");
+            }
         } catch (Exception e) {
-            System.err.println("Benchmark sirasinda hata: " + e.getMessage());
+            throw new IllegalStateException("Benchmark başarısız: " + e.getMessage(), e);
+        }
+    }
+
+    private static byte[] signRequest(String requestId, String keyId, String payload) throws Exception {
+        SignRequest request = new SignRequest();
+        request.setRequestId(requestId);
+        request.setKeyId(keyId);
+        request.setAlgorithm("SHA256withECDSA");
+        request.setCurve("secp256k1");
+        request.setPayloadEncoding("base64");
+        request.setPayload(payload);
+        return OBJECT_MAPPER.writeValueAsString(request).getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static byte[] verifyRequest(String requestId, String payload, String signature, String publicKey)
+            throws Exception {
+        VerifyRequest request = new VerifyRequest();
+        request.setRequestId(requestId);
+        request.setAlgorithm("SHA256withECDSA");
+        request.setCurve("secp256k1");
+        request.setPayloadEncoding("base64");
+        request.setPayload(payload);
+        request.setSignatureEncoding("DER");
+        request.setSignature(signature);
+        request.setPublicKey(publicKey);
+        return OBJECT_MAPPER.writeValueAsString(request).getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static void validateArguments(String operation, int messageCount, int payloadSize) {
+        if (!operation.equals("sign") && !operation.equals("verify")) {
+            throw new IllegalArgumentException("operation 'sign' veya 'verify' olmalıdır");
+        }
+        if (messageCount < 1 || payloadSize < 1) {
+            throw new IllegalArgumentException("message-count ve payload-size pozitif olmalıdır");
         }
     }
 }
