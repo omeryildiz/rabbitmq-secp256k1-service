@@ -25,10 +25,6 @@ public class Secp256k1KeyManager {
         Security.addProvider(new BouncyCastleProvider());
     }
 
-    public static Map<String, String> generateKeyPair(String keyId) throws Exception {
-        return generateKeyPair(keyId, Path.of("keys"));
-    }
-
     public static Map<String, String> generateKeyPair(String keyId, Path keyDirectory) throws Exception {
         validateKeyId(keyId);
         logger.info("Key pair uretimi basladi. Key ID: {}", keyId);

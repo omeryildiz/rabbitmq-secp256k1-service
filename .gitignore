@@ -3,12 +3,12 @@
 /.vscode/
 *.iml
 
-# Private keys must never be committed. Public test keys may be added deliberately.
-/keys/*-private.pem
+# Key material must never be committed, regardless of its directory.
+*.pem
+*.key
 
 # Generated Gramine artifacts and local signing material
 /gramine/*.manifest
 /gramine/*.manifest.sgx
 /gramine/*.sig
 /gramine/*.token
-/gramine/*.pem

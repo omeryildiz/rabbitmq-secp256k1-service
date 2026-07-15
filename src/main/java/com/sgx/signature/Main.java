@@ -32,7 +32,8 @@ public class Main {
         try {
             if ("keygen".equalsIgnoreCase(mode)) {
                 String keyId = parsedArgs.getOrDefault("key-id", "default-key");
-                Map<String, String> result = Secp256k1KeyManager.generateKeyPair(keyId);
+                Path keyDirectory = keyDirectory(parsedArgs);
+                Map<String, String> result = Secp256k1KeyManager.generateKeyPair(keyId, keyDirectory);
                 
                 System.out.println("{");
                 System.out.println("  \"keyId\": \"" + result.get("keyId") + "\",");
@@ -51,7 +52,7 @@ public class Main {
                 if ("memory".equalsIgnoreCase(keyMode)) {
                     keyProvider = new InMemorySigningKeyProvider(keyId);
                 } else if ("file".equalsIgnoreCase(keyMode)) {
-                    keyProvider = new FileSigningKeyProvider(Path.of("keys"));
+                    keyProvider = new FileSigningKeyProvider(keyDirectory(parsedArgs));
                 } else {
                     throw new IllegalArgumentException("key-mode 'file' veya 'memory' olmalıdır");
                 }
@@ -90,5 +91,11 @@ public class Main {
             }
         }
         return map;
+    }
+
+    private static Path keyDirectory(Map<String, String> parsedArgs) {
+        String defaultDirectory = Path.of(
+                System.getProperty("java.io.tmpdir"), "rabbitmq-secp256k1-service-keys").toString();
+        return Path.of(parsedArgs.getOrDefault("key-dir", defaultDirectory));
     }
 }

@@ -41,10 +41,16 @@ kullanabilir; private key'in enclave içinde kalması ağ trafiğini korumaz.
 
 | Mod | Private key | Kullanım |
 |---|---|---|
-| `keygen` + `signer --key-mode=file` | `keys/*.pem` | Geliştirme/fonksiyon testi |
+| `keygen` + `signer --key-mode=file` | Repo dışındaki geçici dizin | Geliştirme/fonksiyon testi |
 | `signer --key-mode=memory` | Yalnız JVM belleği | Native, SGX ile adil performans baz çizgisi |
 | Gramine SGX signer | Yalnız production enclave belleği | SGX ölçümü |
 | `verifier` | Private key yok | İmza doğrulama |
+
+Uygulama SGX olmayan bir CPU'da da çalışır. `keygen`, `verifier`,
+`benchmark-client`, dosya tabanlı signer ve `--key-mode=memory` native signer
+Gramine/SGX gerektirmez. SGX zorunluluğu yalnız imzalı manifestte sabit olan
+`--require-sgx=true` seçeneğiyle etkinleşir; native scriptler bu seçeneği
+vermez.
 
 Bellek-içi anahtar servis her yeniden başladığında değişir. Kalıcı enclave
 anahtarı gerekiyorsa attestation sonrası secret provisioning veya ayrı bir
@@ -168,12 +174,19 @@ yönetim arayüzü `http://localhost:15672` adresindedir.
 Bu komut geliştirme amacıyla aşağıdaki dosyaları oluşturur:
 
 ```text
-keys/test-key-001-private.pem   # PKCS#8 PEM, POSIX sistemde 0600
-keys/test-key-001-public.pem    # X.509 SubjectPublicKeyInfo PEM
+/tmp/rabbitmq-secp256k1-service-keys/test-key-001-private.pem
+/tmp/rabbitmq-secp256k1-service-keys/test-key-001-public.pem
 ```
 
-Private key dosyaları `.gitignore` kapsamındadır. Bu mod production için
-kullanılmamalıdır.
+Private key PKCS#8 PEM ve POSIX sistemde `0600`, public key X.509
+SubjectPublicKeyInfo PEM biçimindedir. Hiçbir anahtar repo içine üretilmez. Bu
+mod production için kullanılmamalıdır. Farklı bir repo dışı dizin kullanmak için
+hem keygen hem signer'a aynı değeri verin:
+
+```bash
+KEY_DIR=/gizli/gecici-test-dizini ./scripts/run-keygen.sh
+KEY_DIR=/gizli/gecici-test-dizini ./scripts/run-signer.sh
+```
 
 ### 2. Dosya tabanlı signer ve benchmark
 
@@ -219,13 +232,17 @@ docker compose up -d
 Manifest üretme ve enclave imzalama:
 
 ```bash
-make -C gramine sign
+install -d -m 0700 /tmp/gramine-signing-key
+gramine-sgx-gen-private-key /tmp/gramine-signing-key/signer-key.pem
+make -C gramine sign \
+  SGX_SIGNER_KEY=/tmp/gramine-signing-key/signer-key.pem
 ```
 
-İlk çalıştırmada `gramine/signer-key.pem` adlı RSA-3072 enclave imzalama
-anahtarı oluşturulur. Bu anahtar secp256k1 işlem anahtarı değildir; yalnızca
-enclave kimliğini/MRSIGNER'ı imzalar. Dosya Git tarafından yok sayılır ve gizli
-tutulmalıdır. Kurum anahtarını kullanmak için:
+Bu RSA-3072 anahtar secp256k1 işlem anahtarı değildir; yalnızca enclave
+kimliğini/MRSIGNER'ı imzalar. Makefile anahtar üretmez ve repo içindeki bir
+varsayılan anahtar kullanmaz; `SGX_SIGNER_KEY` açıkça verilmelidir. `/tmp`
+örneği yalnız test içindir ve yeniden başlatmada kaybolabilir. Kurum anahtarını
+repo dışındaki korumalı kalıcı konumdan kullanmak için:
 
 ```bash
 make -C gramine sign SGX_SIGNER_KEY=/gizli/yol/enclave-key.pem
@@ -235,6 +252,7 @@ Varsayılan JDK yolları sisteminizde farklıysa:
 
 ```bash
 make -C gramine sign \
+  SGX_SIGNER_KEY=/gizli/yol/enclave-key.pem \
   JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
   JAVA_CONFIG_DIR=/etc/java-17-openjdk \
   ARCH_LIBDIR=/lib/x86_64-linux-gnu
@@ -250,13 +268,83 @@ gramine-sgx-sigstruct-view --verbose --output-format=toml gramine/signer.sig
 Signer'ı çalıştırın:
 
 ```bash
-./scripts/run-signer-sgx.sh
+SGX_SIGNER_KEY=/tmp/gramine-signing-key/signer-key.pem \
+  ./scripts/run-signer-sgx.sh
 ```
 
 Başlangıçta uygulama production DCAP quote kontrolünden geçtikten sonra
 `enclave-key` kimlikli secp256k1 anahtarını üretir. `keys/` altında private key
 oluşmaz. Debug manifest, `gramine-direct`, quote alınamaması veya desteklenmeyen
 quote formatında servis anahtar üretmeden hata verir.
+
+## SGX destekli CPU üzerinde uçtan uca test
+
+Aşağıdaki adımlar gerçek SGX enclave'i, production/debug kontrolünü ve native ↔
+SGX performans karşılaştırmasını doğrular. Önce BIOS'ta SGX'in etkin olduğunu,
+DCAP/AESM servislerinin hazır olduğunu kontrol edin:
+
+```bash
+is-sgx-available
+test -e /dev/sgx_enclave
+test -e /dev/sgx_provision
+systemctl is-active aesmd
+```
+
+`is-sgx-available` çıktısında en az `SGX supported by CPU: true` görülmelidir.
+Driver veya AESM/DCAP hatası varsa enclave testine geçmeden host kurulumunu
+düzeltin. Ardından:
+
+```bash
+# 1. Birim ve gerçek RabbitMQ entegrasyon testleri
+mvn clean test
+docker compose up -d
+mvn -Pintegration-tests verify
+
+# 2. Fat JAR ve repo dışında test amaçlı enclave imzalama anahtarı
+mvn clean package
+install -d -m 0700 /tmp/gramine-signing-key
+gramine-sgx-gen-private-key /tmp/gramine-signing-key/signer-key.pem
+make -C gramine sign \
+  SGX_SIGNER_KEY=/tmp/gramine-signing-key/signer-key.pem
+
+# 3. İmzalanan enclave'in production olduğunu doğrula
+gramine-sgx-sigstruct-view --verbose --output-format=toml gramine/signer.sig
+```
+
+Son komutun çıktısında `debug_enclave = false` olmalıdır. Birinci terminalde
+production enclave signer'ı başlatın:
+
+```bash
+SGX_SIGNER_KEY=/tmp/gramine-signing-key/signer-key.pem \
+  ./scripts/run-signer-sgx.sh
+```
+
+Logda `memory-only:enclave-key` görülmeli; SGX/DCAP veya debug denetimi başarısız
+olursa süreç anahtar üretmeden çıkmalıdır. İkinci terminalde kısa işlev ve
+performans testi çalıştırın:
+
+```bash
+KEY_ID=enclave-key MESSAGE_COUNT=1000 ./scripts/run-benchmark-sign.sh
+```
+
+Ardından SGX signer'ı durdurun, aynı broker ve parametrelerle native bellek
+modunu ölçün:
+
+```bash
+KEY_ID=enclave-key ./scripts/run-signer-memory.sh
+# başka terminal:
+KEY_ID=enclave-key MESSAGE_COUNT=1000 ./scripts/run-benchmark-sign.sh
+```
+
+Gerçek ölçümde kısa koşuyu ısınma olarak kullanıp en az üç uzun native ve üç
+uzun SGX koşusunun medyanlarını karşılaştırın. Repo içinde PEM/key oluşmadığını
+son olarak kontrol edebilirsiniz:
+
+```bash
+find . -path ./.git -prune -o -type f \
+  \( -name '*.pem' -o -name '*.key' \) -print
+git status --short
+```
 
 ## Native ve SGX performans karşılaştırması
 
@@ -275,7 +363,8 @@ KEY_ID=enclave-key ./scripts/run-benchmark-sign.sh | tee benchmark-native.txt
 SGX modu:
 
 ```bash
-./scripts/run-signer-sgx.sh
+SGX_SIGNER_KEY=/tmp/gramine-signing-key/signer-key.pem \
+  ./scripts/run-signer-sgx.sh
 # başka terminal:
 KEY_ID=enclave-key ./scripts/run-benchmark-sign.sh | tee benchmark-sgx.txt
 ```
@@ -322,10 +411,12 @@ bir geçici imza/public key çifti üretir:
 ```bash
 make -C gramine clean
 docker compose down
+rm -rf /tmp/rabbitmq-secp256k1-service-keys /tmp/gramine-signing-key
 ```
 
-`make clean` enclave imzalama anahtarını silmez. Native test private key'lerini
-gerekmiyorsa ayrıca güvenli yaşam döngüsü politikanıza göre kaldırın.
+`make clean` yalnız üretilmiş Gramine manifest/imza çıktılarını siler. Repo
+dışındaki native test ve enclave imzalama anahtarlarını kendi güvenli yaşam
+döngüsü politikanıza göre ayrıca kaldırın.
 
 ## İlgili güvenlik dokümanları
 
