@@ -84,17 +84,38 @@ Grup değişikliğinin geçerli olması için oturumu kapatıp açın. `docker` 
 root eşdeğeri yetkiler verdiğini göz önünde bulundurun; isterseniz Docker
 komutlarını `sudo` ile çalıştırın.
 
-Gramine standart Ubuntu deposunda güncel olmayabilir. Yukarıdaki resmi Gramine
-kurulum sayfasındaki Gramine ve Intel SGX APT depolarını bir kez tanımladıktan
-sonra paket yöneticisiyle kurulum komutu şudur:
+`gramine` Ubuntu'nun varsayılan deposunda bulunmaz. Ubuntu 22.04 (`jammy`) için
+resmî Gramine ve Intel SGX APT depolarını önce ekleyin:
 
 ```bash
+sudo install -d -m 0755 /etc/apt/keyrings
+
+sudo curl -fsSLo /etc/apt/keyrings/gramine-keyring-jammy.gpg \
+  https://packages.gramineproject.io/gramine-keyring-jammy.gpg
+
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/gramine-keyring-jammy.gpg] https://packages.gramineproject.io/ jammy main" \
+  | sudo tee /etc/apt/sources.list.d/gramine.list
+
+sudo curl -fsSLo /etc/apt/keyrings/intel-sgx-deb.asc \
+  https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key
+
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/intel-sgx-deb.asc] https://download.01.org/intel-sgx/sgx_repo/ubuntu jammy main" \
+  | sudo tee /etc/apt/sources.list.d/intel-sgx.list
+
 sudo apt update
 sudo apt install gramine
 ```
 
-Rastgele internet arşivi indirmek yerine dağıtım/Gramine APT deposu ve imzalı
-keyring kullanılması önerilir.
+Ubuntu 24.04 kullanılıyorsa yukarıdaki `jammy` değerlerini `noble` ile değiştirin.
+Kurulumdan önce APT'nin paketi gördüğünü doğrulayabilirsiniz:
+
+```bash
+apt-cache policy gramine
+```
+
+`Candidate: (none)` görünüyorsa `sudo apt update` çıktısındaki Gramine/Intel
+deposu hatasını çözmeden kuruluma devam etmeyin. Rastgele binary arşiv yerine
+resmî APT deposu ve imzalı keyring kullanılması önerilir.
 
 Kurulum doğrulaması:
 
